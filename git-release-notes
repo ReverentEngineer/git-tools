@@ -1,0 +1,74 @@
+#!/usr/bin/env perl
+
+=head1 NAME
+
+git-release-notes - A release notes generator from commits
+
+=head1 SYNOPSIS
+
+git release-notes [<version>]
+
+=head1 DESCRIPTION
+
+Builds a set of release notes based on the subject of git commits. It currently
+assumes semantic versions prefixed with 'v' (e.g. v1.0.0). 
+
+By default, it will use all commits since last version tag. If provided with 
+a version, it creates release notes to the previous version (or entire history
+if it's the first version).
+
+=cut
+
+use strict;
+use warnings;
+use 5.010;
+use Git;
+use Cwd;
+
+if (scalar @ARGV > 1) {
+  print STDERR "Usage: git release-notes [ <version> ]";
+  exit 1;
+}
+
+my $release = $ARGV[0];
+
+my $repo = Git->repository(Directory => getcwd());
+if ($repo->command_oneline("rev-list", "--all", "-n", "1", "--count") == 0) {
+  print STDERR "There are no commits in this repository yet.";
+  exit 1;
+}
+
+my @tags = $repo->command("tag", "-l", "--sort", "v:refname");
+my @release_tags;
+
+for my $tag (@tags) {
+  if ($tag =~ /^v(0|[1-9][0-9]*).(0|[1-9][0-9]*).(0|[1-9][0-9]*)$/) {
+    push @release_tags, $tag;
+  }
+}
+my $release_index = $#release_tags - 1;
+
+my $last_commit = "HEAD";
+if (defined $release) {
+  $release_index = 0;
+  until ($release_tags[$release_index] eq $release or $release_index > $#release_tags) {
+    $release_index++;
+  }
+  if ($release_index > $#release_tags) {
+    print STDERR "Non-existent release\n";
+    exit 1;
+  }
+  $last_commit = $release;
+}
+
+my @changes = [];
+if ($release_index > 0) {
+  my $last_release = $release_tags[$release_index - 1];
+  @changes = $repo->command("log", $last_release."..".$last_commit, "--pretty=format:%s");
+} else {
+  @changes = $repo->command("log", $last_commit, "--pretty=format:%s");
+}
+
+for my $change (@changes) {
+  print("  - ".$change."\n");
+}
